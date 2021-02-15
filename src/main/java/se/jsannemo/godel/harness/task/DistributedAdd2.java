@@ -12,7 +12,7 @@ import java.io.InputStream;
 import java.util.ArrayList;
 import java.util.Scanner;
 
-public class DistributedAdd extends Harness {
+public class DistributedAdd2 extends Harness {
   @Override
   protected void run(Executable executable, FileInputStream inputStream) throws VmException {
     Result result = runCase(executable, readInput(inputStream), true);
@@ -28,7 +28,8 @@ public class DistributedAdd extends Harness {
     Result result = new Result();
     Distributor distributor =
         Distributor.newBuilder(exec, 100, 30000)
-            .setMemorySize(20)
+            .setMemorySize(1000)
+            .setMessageLimit(1)
             .addArray("term", input)
             .addOutput("output", result.outputs)
             .addStdLib(!debug)

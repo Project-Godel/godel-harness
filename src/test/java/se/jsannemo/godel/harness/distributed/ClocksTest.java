@@ -8,7 +8,7 @@ public class ClocksTest {
 
   @Test
   public void testInitial() {
-    Clocks c = new Clocks(3);
+    Clocks c = Clocks.create(3);
     for (int i = 0; i < 3; i++) {
       assertThat(c.time(i)).isEqualTo(0);
     }
@@ -16,7 +16,7 @@ public class ClocksTest {
 
   @Test
   public void testClocks() {
-    Clocks c = new Clocks(2);
+    Clocks c = Clocks.create(2);
     c.tick(0, 5);
     c.causality(1, 5);
     assertThat(c.time(1)).isEqualTo(5);

@@ -6,7 +6,6 @@ import java.util.HashMap;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Queue;
-import java.util.Random;
 import java.util.TreeSet;
 
 import static com.google.common.base.Preconditions.checkArgument;
@@ -33,10 +32,9 @@ final class Scheduler {
   /** Used to signify that a node is not currently waiting for any message. */
   static final int NOT_WAITING = -2;
 
-  private final Random rnd = new Random();
   private final int nodes;
   /** The node that each node is waiting for a message from. */
-  private final int[] blockedFor;
+  private final int[] blockedOn;
   /** Ordered per-recipient, per-sender queues of all unread messages. */
   private final ArrayList<HashMap<Integer, Queue<Message>>> messageQueues = new ArrayList<>();
   /** Per-recipient list of all pending messages. */
@@ -51,14 +49,14 @@ final class Scheduler {
 
   private final boolean[] isScheduled;
 
-  public Scheduler(int nodes) {
+  private Scheduler(int nodes) {
     checkArgument(nodes >= 0);
-    blockedFor = new int[nodes];
+    blockedOn = new int[nodes];
     isScheduled = new boolean[nodes];
     for (int i = 0; i < nodes; i++) {
       messageQueues.add(new HashMap<>());
       allMessages.add(new TreeSet<>());
-      blockedFor[i] = NOT_WAITING;
+      blockedOn[i] = NOT_WAITING;
       isScheduled[i] = true;
       scheduled.add(i);
     }
@@ -69,7 +67,7 @@ final class Scheduler {
    * Returns true if a message can be retrieved immediately for {@code target} from {@code source}
    * or false if {@code target} must be suspended.
    */
-  public boolean receive(int target, int source) {
+  boolean receive(int target, int source) {
     if (source == WAITING_ANY) {
       receiveAny(target);
       return false;
@@ -79,7 +77,7 @@ final class Scheduler {
     HashMap<Integer, Queue<Message>> targetMap = messageQueues.get(target);
     Queue<Message> msgQueue = targetMap.get(source);
     if (msgQueue == null || msgQueue.isEmpty()) {
-      blockedFor[target] = source;
+      blockedOn[target] = source;
       return false;
     }
     return true;
@@ -87,31 +85,31 @@ final class Scheduler {
 
   private void receiveAny(int target) {
     checkArgument(target >= 0 && target < nodes);
-    blockedFor[target] = WAITING_ANY;
+    blockedOn[target] = WAITING_ANY;
     TreeSet<Message> messages = allMessages.get(target);
     if (!messages.isEmpty()) {
       earliestAnyBlockedCandidates.add(messages.first());
     }
   }
 
-  public void send(Message m) {
+  void send(Message m) {
     int receiver = m.receiver;
     messageQueues.get(receiver).computeIfAbsent(m.sender, (k) -> new ArrayDeque<>()).add(m);
     // If the receiver was already waiting for any message, the new one may be earlier than the
     // previous earliest.
     TreeSet<Message> allForReceiver = allMessages.get(receiver);
-    if (blockedFor[receiver] == WAITING_ANY) {
+    if (blockedOn[receiver] == WAITING_ANY) {
       if (!allForReceiver.isEmpty()) {
         earliestAnyBlockedCandidates.remove(allForReceiver.first());
       }
     }
     allForReceiver.add(m);
-    if (blockedFor[receiver] == WAITING_ANY) {
+    if (blockedOn[receiver] == WAITING_ANY) {
       earliestAnyBlockedCandidates.add(allForReceiver.first());
     }
 
     // If the receiver waited for this particular sender, it may be scheduled again.
-    if (blockedFor[receiver] == m.sender && !isScheduled[receiver]) {
+    if (blockedOn[receiver] == m.sender && !isScheduled[receiver]) {
       isScheduled[receiver] = true;
       scheduled.add(receiver);
     }
@@ -122,7 +120,7 @@ final class Scheduler {
    * #receive(int target, int sender)} call returned true, if the node was scheduled and the source
    * is is {@code blockedFor[target]}.
    */
-  public Message nextMessage(int target, int source) {
+  Message nextMessage(int target, int source) {
     checkArgument(target >= 0 && target < nodes);
     if (source == WAITING_ANY) {
       Message first = earliestAnyBlockedCandidates.first();
@@ -135,19 +133,18 @@ final class Scheduler {
     Message m = messageQueue.poll();
     allMessages.get(target).remove(m);
     earliestAnyBlockedCandidates.remove(m);
-    blockedFor[target] = NOT_WAITING;
+    blockedOn[target] = NOT_WAITING;
     System.err.println("MSG: " + m.sender + " to " + m.receiver + " (" + m.message + ")");
     return m;
   }
 
   /** Returns the ID of a node that can be scheduled for execution. */
-  public Optional<Integer> schedule() {
+  Optional<Integer> schedule() {
     // If we have anything ready to be scheduled, pick it.
     if (!scheduled.isEmpty()) {
-      int nx = rnd.nextInt(scheduled.size());
-      int which = scheduled.get(nx);
-      scheduled.set(nx, scheduled.get(scheduled.size() - 1));
-      scheduled.remove(scheduled.size() - 1);
+      int lastIdx = scheduled.size() - 1;
+      int which = scheduled.get(lastIdx);
+      scheduled.remove(lastIdx);
       isScheduled[which] = false;
       return Optional.of(which);
     }
@@ -159,8 +156,12 @@ final class Scheduler {
     return Optional.empty();
   }
 
-  public int blockedFor(int node) {
-    return blockedFor[node];
+  int blockedFor(int node) {
+    return blockedOn[node];
+  }
+
+  static Scheduler create(int nodes) {
+    return new Scheduler(nodes);
   }
 
   public static class Message implements Comparable<Message> {

@@ -16,6 +16,7 @@ import java.util.Optional;
 
 public final class Distributor {
 
+  public static final int NO_MESSAGE_LIMIT = -1;
   private boolean suspended = false;
   private final Clocks clocks;
   private final Scheduler scheduler;
@@ -23,18 +24,21 @@ public final class Distributor {
   private final ArrayList<SpookyVm> vms;
   private final ArrayList<ByteArrayOutputStream> standardOutput;
   private final int cycleLimit;
+  private final int[] sent;
 
   private Distributor(
       ImmutableList<SpookyVm.Builder> builders,
       int cycleLimit,
-      ArrayList<ByteArrayOutputStream> standardOutput) {
+      ArrayList<ByteArrayOutputStream> standardOutput,
+      int messageLimit) {
     int nodes = builders.size();
-    this.clocks = new Clocks(nodes);
-    this.scheduler = new Scheduler(nodes);
+    this.clocks = Clocks.create(nodes);
+    this.scheduler = Scheduler.create(nodes);
     this.sources = new int[nodes];
     this.cycleLimit = cycleLimit;
     this.standardOutput = standardOutput;
     this.vms = new ArrayList<>();
+    this.sent = new int[nodes];
     for (int i = 0; i < builders.size(); i++) {
       int name = i;
       this.sources[i] = -1;
@@ -45,6 +49,9 @@ public final class Distributor {
       builder.addExtern(
           "send",
           (vm) -> {
+            if (sent[name] == messageLimit) {
+              throw new VmException("Exceeded message limit");
+            }
             int target = StdLib.getArg(vm, 1);
             int msg = StdLib.getArg(vm, 0);
             if (target < 0 || target >= nodes) {
@@ -115,6 +122,7 @@ public final class Distributor {
     private final ImmutableList<SpookyVm.Builder> builders;
     private final ArrayList<ByteArrayOutputStream> outputs = new ArrayList<>();
     private final int cycleLimit;
+    private int messageLimit = -1;
 
     private Builder(Executable executable, int nodes, int cycleLimit) {
       ImmutableList.Builder<SpookyVm.Builder> buildersBuilder = ImmutableList.builder();
@@ -148,13 +156,43 @@ public final class Distributor {
       for (int i = 0; i < builders.size(); i++) {
         ByteArrayOutputStream output = new ByteArrayOutputStream();
         outputs.add(output);
-        builders.get(i).addStdLib().setStdOut(nullOutput ? new PrintStream(OutputStream.nullOutputStream()) : new PrintStream(output));
+        builders
+            .get(i)
+            .addStdLib()
+            .setStdOut(
+                nullOutput
+                    ? new PrintStream(OutputStream.nullOutputStream())
+                    : new PrintStream(output));
       }
       return this;
     }
 
+    public Builder setMessageLimit(int messageLimit) {
+      this.messageLimit = messageLimit;
+      return this;
+    }
+
+    public Distributor.Builder addArray(String name, int[] input) {
+      addExtern(name + "s", (vm, node) -> StdLib.setReturn(vm, 0, input.length));
+      addExtern(
+          name,
+          (vm, node) -> {
+            int i = StdLib.getArg(vm, 0);
+            if (i < 0 || i >= input.length) {
+              throw new VmException(node + " accessing out-of-bounds term " + i);
+            }
+            StdLib.setReturn(vm, 1, input[i]);
+          });
+      return this;
+    }
+
     public Distributor build() {
-      return new Distributor(builders, cycleLimit, outputs);
+      return new Distributor(builders, cycleLimit, outputs, messageLimit);
+    }
+
+    public Builder addOutput(String name, ArrayList<Integer> outputs) {
+      addExtern(name, (vm, node) -> outputs.add(StdLib.getArg(vm, 0)));
+      return this;
     }
   }
 

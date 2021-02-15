@@ -14,7 +14,7 @@ public class SchedulerTest {
   @Test
   public void testNoMessages() {
     Set<Integer> schedule = new HashSet<>();
-    Scheduler s = new Scheduler(5);
+    Scheduler s = Scheduler.create(5);
     while (true) {
       Optional<Integer> scheduled = s.schedule();
       if (scheduled.isPresent()) {
@@ -28,7 +28,7 @@ public class SchedulerTest {
 
   @Test
   public void testMessages() {
-    Scheduler s = new Scheduler(2);
+    Scheduler s = Scheduler.create(2);
     int first = s.schedule().get();
     int second = 1 - first;
     assertThat(s.receive(first, second)).isFalse();
@@ -50,7 +50,7 @@ public class SchedulerTest {
 
   @Test
   public void testMessageAny() {
-    Scheduler s = new Scheduler(2);
+    Scheduler s = Scheduler.create(2);
     int first = s.schedule().get();
     int second = 1 - first;
     s.send(new Scheduler.Message(5, first, second, 1));
